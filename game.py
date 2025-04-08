@@ -1,230 +1,151 @@
-import pgzrun
-import pygame
-from random import randint
-from pgzero.actor import Actor
+import random
+from pygame import Rect
 
-# tamanho da janela
-WIDTH = 800
-HEIGHT = 600
+WIDTH = 1024
+HEIGHT = 512
+GROUND_Y = 420
 
-# Estados do jogo
-game_state = "menu" # Pode ser "menu", "playing" ou "game_over"
+game_started = False
+show_music_toggle = True
+music_on = True
+game_over = False
+hovered_button = None
+score = 0
 
-# Controle de som
-sound_on = True
+# Botões
+buttons = {
+    "start": Rect(WIDTH//2 - 100, 200, 200, 50),
+    "toggle_music": Rect(WIDTH//2 - 100, 270, 200, 50),
+    "exit": Rect(WIDTH//2 - 100, 340, 200, 50),
+    "menu": Rect(WIDTH//2 - 100, 300, 200, 50)
+}
 
-# --- Botões do menu ---
-class Button:
-    def __init__(self, text, pos, action):
-        self.text = text
-        self.pos = pos
-        self.action = action
-        self.width = 200
-        self.height = 50
-
-    
-    def draw(self):
-        screen.draw.filled_rect(Rect((self.pos[0], self.pos[1]), (self.width, self.height)), "darkblue")
-        screen.draw.text(self.text, center=(self.pos[0] + self.width//2, self.pos[1] + self.height//2), fontsize=32, color="white")
+# Lista de imagens dos obstáculos
+obstacle_images = ['obstaculo', 'obstaculo2', 'obstaculo3', 'obstaculo4']
 
 
-    def is_clicked(self, mouse_pos):
-        rect = Rect((self.pos[0], self.pos[1]), (self.width, self.height))
-        return rect.collidepoint(mouse_pos)  
+def play_music(track_name):
+    if music_on:
+        music.stop()
+        music.play(track_name)
+    else:
+        music.stop()
 
+def init_game():
+    global hero, obstacle, gravity, jump_force, on_ground, game_over, score
 
-# criação dos botões
-buttons = [
-    Button("Start Game", (300,150), "start"),
-    Button("Sound: On", (300,220), "toggle_sound"),
-    Button("Exit", (300,290), "exit")
-]                
+    hero = Actor('player_idle')
+    hero.x = 100
+    hero.y = GROUND_Y - hero.height // 2
+    hero.vy = 0
+    gravity = 1
+    jump_force = -18
+    on_ground = True
 
-# Botões dentro do estado "playing"
-pause_play_button = Button("Pause", (10, 10), "toggle_pause")
-back_to_menu_button = Button("Menu", (10, 70), "back_to_menu")
+    obstacle = Actor(random.choice(obstacle_images))
+    obstacle.x = WIDTH + 200
+    obstacle.y = GROUND_Y - obstacle.height // 2
 
+    score = 0
+    game_over = False
 
-# --- Jogador ---
-player = Actor("player_idle")
-player._surf = pygame.transform.scale(player._surf, (60, 60))  # Ajuste o tamanho conforme necessário
-player.width = 60
-player.height = 60
-player.x = WIDTH // 2
-player.y = HEIGHT - 150
+init_game()
 
+def draw_button(rect, text, color, hover=False):
+    border_color = "white" if not hover else "yellow"
+    screen.draw.filled_rect(rect, color)
+    screen.draw.rect(rect, border_color)
+    screen.draw.text(text, center=rect.center, color="white")
 
-# Física do jogador
-player.vy = 0 # velocidade vertical
-player.vx = 0  # Velocidade horizontal
-gravity = 0.5 # gravidade
-jump_strength = -10 # força do pulo
-move_speed = 5 # velocidade de movimento
-is_jumping = False # controle de pulo
-
-# Função para desenhar
 def draw():
-    print("🔄 draw() foi chamado")
     screen.clear()
 
-    if game_state == "menu":
-        screen.draw.text("Sky Jumper", center=(WIDTH//2, 80), fontsize=60, color="orange")
-        for btn in buttons:
-            btn.draw()
+    if not game_started:
+        screen.blit('plataforma', (0, 0))
+        screen.draw.text("Sky Jumper", center=(WIDTH//2, 100), fontsize=60, color="white")
 
-    elif game_state in ["playing", "paused"]:
-        for obstaculo in obstaculos:
-            obstaculo.draw()
-        for plataforma in plataformas:
-            plataforma.draw()
-        player.draw()
+        draw_button(buttons["start"], "Jogar", "blue", hovered_button == "start")
+        draw_button(buttons["toggle_music"], f"Musica: {'ON' if music_on else 'OFF'}", "green", hovered_button == "toggle_music")
+        draw_button(buttons["exit"], "Sair", "red", hovered_button == "exit")
 
-        # Botões de pause/menu
-        pause_play_button.draw()
-        back_to_menu_button.draw()
+    elif game_over:
+        screen.blit('plataforma', (0, 0))
+        screen.draw.text("Game Over", center=(WIDTH//2, 180), fontsize=60, color="red")
+        screen.draw.text(f"Pontos: {score}", center=(WIDTH//2, 240), fontsize=40, color="white")
 
-        if game_state == "paused":
-            screen.draw.text("Jogo Pausado", center=(WIDTH//2, HEIGHT//2), fontsize=50, color="yellow")
+        draw_button(buttons["menu"], "Voltar ao Menu", "orange", hovered_button == "menu")
 
-    elif game_state == "game_over":
-        screen.draw.text("GAME OVER", center=(WIDTH//2, HEIGHT//2), fontsize=80, color="red")
-        screen.draw.text("Clique para voltar ao menu", center=(WIDTH//2, HEIGHT//2 + 60), fontsize=30, color="white")
+    else:
+        screen.blit('plataforma', (0, 0))
+        screen.draw.filled_rect(Rect(0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y), 'green')
 
-          
+        hero.draw()
+        obstacle.draw()
 
+        screen.draw.text(f"Pontos: {score}", topleft=(20, 20), fontsize=35, color="white")
 
-# Função para cliques do mouse
-def on_mouse_down(pos):
-    global game_state, sound_on
-
-    if game_state == "menu":
-        for btn in buttons:
-            if btn.is_clicked(pos):
-                if btn.action == "start":
-                    game_state = "playing"
-                elif btn.action == "toggle_sound":
-                    sound_on = not sound_on
-                    btn.text = f"Sound: {'On' if sound_on else 'Off'}"
-                elif btn.action == "exit":
-                    exit()
-
-    elif game_state in ["playing", "paused"]:
-        if pause_play_button.is_clicked(pos):
-            game_state = "paused" if game_state == "playing" else "playing"
-            pause_play_button.text = "Play" if game_state == "paused" else "Pause"
-
-        elif back_to_menu_button.is_clicked(pos):
-            game_state = "menu"
-    
-    elif game_state == "game_over":
-        game_state = "menu"
-
-
-# detecção de tecla para pular
-def on_key_down(key):
-    global is_jumping
-    if key == keys.SPACE and not is_jumping:
-        player.vy = jump_strength
-        is_jumping = True
-
-# Função update
 def update():
-    global game_state
-    global is_jumping
+    global on_ground, game_over, score
 
-    if game_state != "playing":
-        
-        return #pausa o jogo
-    
-    for obstaculo in obstaculos:
-        obstaculo.update()
+    if not game_started or game_over:
+        return
 
-        if obstaculo.colide_com(player):
-            print("🔥 Colidiu com obstáculo!")
-            game_state = "game_over"
+    hero.vy += gravity
+    hero.y += hero.vy
 
-    # movimento lateral
-    player.vx = 0
-    if keyboard.left:
-        player.vx = -move_speed
-    elif keyboard.right:
-        player.vx = move_speed
+    if hero.y >= GROUND_Y - hero.height // 2:
+        hero.y = GROUND_Y - hero.height // 2
+        hero.vy = 0
+        on_ground = True
+    else:
+        on_ground = False
 
-    # Aplica movimento horizontal
-    player.x += player.vx
+    obstacle.x -= 6
+    if obstacle.right < 0:
+        obstacle.x = WIDTH + random.randint(100, 300)
+        obstacle.image = random.choice(obstacle_images)
+        score += 1
 
-    # Limites laterais
-    if player.x < 0:
-        player.x = 0
-    elif player.x > WIDTH:
-        player.x = WIDTH
+    if hero.colliderect(obstacle):
+        print("Game Over")
+        game_over = True
+        music.stop()
+        sounds.hit.play()
 
-    # Aplica gravidade
-    player.vy += gravity
-    player.y += player.vy  # ⬅ Aqui você aplica o movimento vertical
+def on_key_down(key):
+    if key == keys.SPACE and on_ground and not game_over:
+        hero.vy = jump_force
+        sounds.jump.play()
 
-    # Verifica colisão com plataformas
-    on_plataforma = False
-    for plataforma in plataformas:
-        if (player.colliderect(plataforma.actor) and
-            player.vy >= 0 and
-            player.y < plataforma.actor.y):
-            player.y = plataforma.actor.y - player.height / 2
-            player.vy = 0
-            is_jumping = False
-            on_plataforma = True
+def on_mouse_down(pos):
+    global game_started, music_on
+
+    for name, rect in buttons.items():
+        if rect.collidepoint(pos):
+            sounds.click.play()
+
+    if not game_started:
+        if buttons["start"].collidepoint(pos):
+            game_started = True
+            play_music('playingsong')
+            init_game()
+        elif buttons["toggle_music"].collidepoint(pos):
+            music_on = not music_on
+            if music_on:
+                play_music('menusong' if not game_started else 'playingsong')
+            else:
+                music.stop()
+        elif buttons["exit"].collidepoint(pos):
+            exit()
+    elif game_over:
+        if buttons["menu"].collidepoint(pos):
+            game_started = False
+            play_music('menusong')
+
+def on_mouse_move(pos):
+    global hovered_button
+    hovered_button = None
+    for name, rect in buttons.items():
+        if rect.collidepoint(pos):
+            hovered_button = name
             break
-
-    # Chão (caso não esteja em plataforma)
-    if not on_plataforma and player.y >= HEIGHT - 100:
-        player.y = HEIGHT - 100
-        player.vy = 0
-        is_jumping = False
-
-
-# --- Plataforma ---
-class Plataforma:
-    def __init__(self, x, y):
-        self.actor = Actor("plataforma")
-        self.actor.pos = (x, y)
-
-    def draw(self):
-        self.actor.draw()
-
-    def colide_com(self, jogador):
-        return self.actor.colliderect(jogador)
-    
-# Lista de plataformas
-plataformas = [
-    Plataforma(300, 450),
-    Plataforma(150, 350),
-    Plataforma(500, 250)
-]
-
-# --- Obstáculo ---
-class Obstaculo:
-    def __init__(self, x, y):
-        self.actor = Actor("obstaculo")  # imagem: images/obstaculo.png
-        self.actor.pos = (x, y)
-        self.speed = 2  # velocidade de movimento horizontal
-
-    def draw(self):
-        self.actor.draw()
-
-    def update(self):
-        # Movimento lateral (opcional)
-        self.actor.x += self.speed
-        if self.actor.left < 0 or self.actor.right > WIDTH:
-            self.speed *= -1  # inverte a direção
-
-    def colide_com(self, jogador):
-        return self.actor.colliderect(jogador)
-    
-# Lista de obstáculos
-obstaculos = [
-    Obstaculo(200, 400),
-    Obstaculo(600, 300)
-]
-
-pgzrun.go()
-    
